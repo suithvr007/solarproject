@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solar Panel Monitoring Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f0f4f8;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      background-color: #00796b;
+      color: white;
+      padding: 20px;
+      text-align: center;
+    }
+    h1 {
+      margin: 0;
+    }
+    .container {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin: 20px;
+      gap: 20px;
+    }
+    .card {
+      background-color: white;
+      border-radius: 10px;
+      padding: 20px;
+      width: 350px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    .card h2 {
+      color: #00796b;
+      text-align: center;
+    }
+    canvas {
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Smart Solar Panel Monitoring</h1>
+</header>
+
+<div class="container">
+  <div class="card">
+    <h2>Panel 1</h2>
+    <canvas id="chart1"></canvas>
+  </div>
+  <div class="card">
+    <h2>Panel 2</h2>
+    <canvas id="chart2"></canvas>
+  </div>
+  <div class="card">
+    <h2>Panel 3</h2>
+    <canvas id="chart3"></canvas>
+  </div>
+</div>
+
+<script>
+  // Function to generate random IoT-like data
+  function generateData() {
+    return {
+      voltage: (Math.random() * 50 + 200).toFixed(1),
+      current: (Math.random() * 5 + 5).toFixed(1),
+      power: 0 // calculated later
+    };
+  }
+
+  // Initialize charts
+  const charts = [];
+
+  function createChart(ctx) {
+    return new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'Voltage (V)', data: [], borderColor: '#00796b', fill: false },
+          { label: 'Current (A)', data: [], borderColor: '#ff9800', fill: false },
+          { label: 'Power (W)', data: [], borderColor: '#d32f2f', fill: false }
+        ]
+      },
+      options: {
+        responsive: true,
+        animation: false,
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }
+    });
+  }
+
+  // Setup charts for 3 panels
+  for (let i = 1; i <= 3; i++) {
+    const ctx = document.getElementById(`chart${i}`).getContext('2d');
+    charts.push(createChart(ctx));
+  }
+
+  // Update chart with new data every 2 seconds
+  setInterval(() => {
+    const now = new Date().toLocaleTimeString();
+
+    charts.forEach(chart => {
+      const dataPoint = generateData();
+      dataPoint.power = (dataPoint.voltage * dataPoint.current).toFixed(1);
+
+      // Keep only last 10 points
+      if (chart.data.labels.length >= 10) {
+        chart.data.labels.shift();
+        chart.data.datasets.forEach(ds => ds.data.shift());
+      }
+
+      chart.data.labels.push(now);
+      chart.data.datasets[0].data.push(dataPoint.voltage);
+      chart.data.datasets[1].data.push(dataPoint.current);
+      chart.data.datasets[2].data.push(dataPoint.power);
+
+      chart.update();
+    });
+  }, 2000);
+</script>
+
+</body>
+</html>
