@@ -1,133 +1,354 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Solar Panel Monitoring Dashboard</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Android Log Analyzer</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
     body {
-      font-family: Arial, sans-serif;
-      background-color: #f0f4f8;
       margin: 0;
-      padding: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #f4f6f9;
+      color: #333;
     }
-    header {
-      background-color: #00796b;
+    .navbar {
+      background: #2c3e50;
       color: white;
-      padding: 20px;
-      text-align: center;
-    }
-    h1 {
-      margin: 0;
+      padding: 0.75rem 1.5rem;
+      font-size: 1.25rem;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
     .container {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      margin: 20px;
-      gap: 20px;
+      max-width: 900px;
+      margin: 2rem auto;
+      padding: 0 1rem;
     }
     .card {
-      background-color: white;
-      border-radius: 10px;
-      padding: 20px;
-      width: 350px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+      background: white;
+      margin-bottom: 2rem;
+      padding: 1.5rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
     }
-    .card h2 {
-      color: #00796b;
-      text-align: center;
+    button {
+      background: #3498db;
+      border: none;
+      color: white;
+      padding: 0.6rem 1.2rem;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 0.5rem;
+      font-size: 1rem;
     }
-    canvas {
-      margin-top: 10px;
+    button:hover {
+      background: #2980b9;
+    }
+    input[type="file"] {
+      margin-right: 1rem;
+    }
+    .chart-container {
+      width: 100%;
+      max-width: 700px;
+      margin: auto;
+    }
+    .filters label {
+      margin-right: 1rem;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+    .output, .activities {
+      background: #ecf0f1;
+      border-radius: 4px;
+      padding: 1rem;
+      max-height: 250px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 0.9rem;
     }
   </style>
 </head>
 <body>
 
-<header>
-  <h1>Smart Solar Panel Monitoring</h1>
-</header>
+<div class="navbar">Android Log Analyzer</div>
 
 <div class="container">
   <div class="card">
-    <h2>Panel 1</h2>
-    <canvas id="chart1"></canvas>
+    <h2>Upload & Analyze</h2>
+    <input type="file" id="logFile" accept=".txt,.log" multiple>
+    <button onclick="analyzeLog()">Analyze</button>
+    <button onclick="downloadReport()">Download TXT</button>
+    <button onclick="copyToClipboard()">Copy Logs</button>
+    <button onclick="downloadCSV()">Export CSV</button>
+    <button onclick="downloadPDF()">Export PDF</button>
   </div>
+
   <div class="card">
-    <h2>Panel 2</h2>
-    <canvas id="chart2"></canvas>
+    <h2>Error Summary</h2>
+    <div class="chart-container">
+      <canvas id="errorChart"></canvas>
+    </div>
   </div>
+
   <div class="card">
-    <h2>Panel 3</h2>
-    <canvas id="chart3"></canvas>
+    <h2>Error Filters</h2>
+    <div class="filters">
+      <label><input type="checkbox" class="filter-checkbox" value="Crash" checked> Crash (<span id="count-Crash">0</span>)</label>
+      <label><input type="checkbox" class="filter-checkbox" value="ANR" checked> ANR (<span id="count-ANR">0</span>)</label>
+      <label><input type="checkbox" class="filter-checkbox" value="StrictMode" checked> StrictMode (<span id="count-StrictMode">0</span>)</label>
+      <label><input type="checkbox" class="filter-checkbox" value="SystemError" checked> System Error (<span id="count-SystemError">0</span>)</label>
+      <label><input type="checkbox" class="filter-checkbox" value="OutOfMemory" checked> OutOfMemory (<span id="count-OutOfMemory">0</span>)</label>
+      <label><input type="checkbox" class="filter-checkbox" value="StageNow" checked> StageNow (<span id="count-StageNow">0</span>)</label>
+    </div>
+    <div id="output" class="output"></div>
+  </div>
+
+  <div class="card">
+    <h2>Activity Navigations</h2>
+    <div class="filters">
+      <label><input type="checkbox" id="activityDisplayed" checked> Displayed</label>
+      <label><input type="checkbox" id="activityStarted" checked> Started</label>
+    </div>
+    <div id="activities" class="activities"></div>
+  </div>
+
+  <div class="card">
+    <h2>Activity Transition Timeline</h2>
+    <div class="chart-container">
+      <canvas id="activityChart"></canvas>
+    </div>
   </div>
 </div>
 
 <script>
-  // Function to generate random IoT-like data
-  function generateData() {
-    return {
-      voltage: (Math.random() * 50 + 200).toFixed(1),
-      current: (Math.random() * 5 + 5).toFixed(1),
-      power: 0 // calculated later
+  let parsedErrors = {}, parsedActivities = {}, errorCounts = {}, activityTimeline = [];
+
+  function analyzeLog() {
+    const files = document.getElementById("logFile").files;
+    if (!files.length) return alert("Please upload one or more log files.");
+
+    parsedErrors = {
+      Crash: [], ANR: [], StrictMode: [], SystemError: [], OutOfMemory: [], StageNow: []
     };
+    parsedActivities = { Displayed: [], Started: [] };
+    errorCounts = {
+      Crash: 0, ANR: 0, StrictMode: 0, SystemError: 0, OutOfMemory: 0, StageNow: 0
+    };
+    activityTimeline = [];
+
+    let fileCount = files.length;
+    let processed = 0;
+
+    Array.from(files).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const lines = e.target.result.split("\n");
+
+        lines.forEach(line => {
+          if (/FATAL EXCEPTION|java\.lang\./.test(line)) {
+            parsedErrors.Crash.push(line); errorCounts.Crash++;
+          }
+          if (/ANR in|ActivityManager.*ANR|Input dispatching timed out|not responding/.test(line)) {
+            parsedErrors.ANR.push(line); errorCounts.ANR++;
+          }
+          if (/StrictMode|disk read|network on main thread/i.test(line)) {
+            parsedErrors.StrictMode.push(line); errorCounts.StrictMode++;
+          }
+          if (/System\.err|Caused by:/.test(line)) {
+            parsedErrors.SystemError.push(line); errorCounts.SystemError++;
+          }
+          if (/OutOfMemoryError|low memory|GC/.test(line)) {
+            parsedErrors.OutOfMemory.push(line); errorCounts.OutOfMemory++;
+          }
+          if (/StagingProgress:\s*sendResult,\s*status=\s*EXCEPTION/i.test(line)) {
+            parsedErrors.StageNow.push(line); errorCounts.StageNow++;
+          }
+
+          if (/Displayed\s+[\w\.\/]+/.test(line) || /ActivityManager:\s+Displayed/.test(line)) {
+            const timeMatch = line.match(/\d{2}:\d{2}:\d{2}/);
+            const activityMatch = line.match(/Displayed\s+([\w\.\/]+)/);
+            if (timeMatch && activityMatch) {
+              const time = timeMatch[0], name = activityMatch[1];
+              parsedActivities.Displayed.push(`${time} - ${name}`);
+              activityTimeline.push({ time, name });
+            }
+          }
+
+          if (/Starting\s+intent/i.test(line) || /Start proc|Starting activity|StartActivity/.test(line)) {
+            const timeMatch = line.match(/\d{2}:\d{2}:\d{2}/);
+            const match = line.match(/Starting.*?(?= from|$)/);
+            const entry = timeMatch && match ? `${timeMatch[0]} - ${match[0]}` : line;
+            parsedActivities.Started.push(entry);
+          }
+        });
+
+        processed++;
+        if (processed === fileCount) {
+          updateFilteredOutput();
+          updateActivityOutput();
+          renderChart();
+          renderActivityChart();
+        }
+      };
+      reader.readAsText(file);
+    });
   }
 
-  // Initialize charts
-  const charts = [];
+  function updateFilteredOutput() {
+    const checkboxes = document.querySelectorAll(".filter-checkbox");
+    const selected = new Set();
+    checkboxes.forEach(cb => { if (cb.checked) selected.add(cb.value); });
 
-  function createChart(ctx) {
-    return new Chart(ctx, {
-      type: 'line',
+    let text = '';
+    selected.forEach(cat => {
+      const lines = parsedErrors[cat] || [];
+      document.getElementById("count-" + cat).innerText = lines.length;
+      if (lines.length > 0) {
+        text += `--- ${cat} ---\n` + lines.join('\n') + '\n\n';
+      }
+    });
+
+    document.getElementById("output").innerText = text || "No errors match selected filters.";
+  }
+
+  function updateActivityOutput() {
+    const showDisplayed = document.getElementById("activityDisplayed").checked;
+    const showStarted = document.getElementById("activityStarted").checked;
+    let result = '';
+
+    if (showDisplayed) {
+      result += "--- Displayed Activities ---\n" + parsedActivities.Displayed.join('\n') + '\n\n';
+    }
+    if (showStarted) {
+      result += "--- Started Activities ---\n" + parsedActivities.Started.join('\n') + '\n\n';
+    }
+
+    document.getElementById("activities").innerText = result || "No activity logs match selected filters.";
+  }
+
+  function renderChart() {
+    new Chart(document.getElementById("errorChart"), {
+      type: 'bar',
       data: {
-        labels: [],
-        datasets: [
-          { label: 'Voltage (V)', data: [], borderColor: '#00796b', fill: false },
-          { label: 'Current (A)', data: [], borderColor: '#ff9800', fill: false },
-          { label: 'Power (W)', data: [], borderColor: '#d32f2f', fill: false }
-        ]
+        labels: Object.keys(errorCounts),
+        datasets: [{
+          label: 'Error Count',
+          data: Object.values(errorCounts),
+          backgroundColor: 'rgba(52, 152, 219, 0.7)',
+          borderColor: 'rgba(41, 128, 185, 1)',
+          borderWidth: 1
+        }]
       },
       options: {
         responsive: true,
-        animation: false,
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+  }
+
+  function renderActivityChart() {
+    const labels = activityTimeline.map(entry => `${entry.time}`);
+    const activities = activityTimeline.map(entry => entry.name);
+    new Chart(document.getElementById("activityChart"), {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Activity',
+          data: new Array(labels.length).fill(1),
+          backgroundColor: 'rgba(46, 204, 113, 0.7)',
+          borderColor: 'rgba(39, 174, 96, 1)',
+          borderWidth: 1
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        plugins: {
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${labels[ctx.dataIndex]} - ${activities[ctx.dataIndex]}`
+            }
+          },
+          legend: { display: false }
+        },
         scales: {
-          y: { beginAtZero: true }
+          x: { display: false },
+          y: {
+            ticks: {
+              callback: (val, idx) => `${labels[idx]} - ${activities[idx]}`,
+              font: { size: 10 }
+            }
+          }
         }
       }
     });
   }
 
-  // Setup charts for 3 panels
-  for (let i = 1; i <= 3; i++) {
-    const ctx = document.getElementById(`chart${i}`).getContext('2d');
-    charts.push(createChart(ctx));
+  function downloadReport() {
+    const content = `=== Errors ===\n${document.getElementById("output").innerText}\n\n=== Activities ===\n${document.getElementById("activities").innerText}`;
+    const blob = new Blob([content], { type: 'text/plain' });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "log_report.txt";
+    a.click();
   }
 
-  // Update chart with new data every 2 seconds
-  setInterval(() => {
-    const now = new Date().toLocaleTimeString();
+  function copyToClipboard() {
+    const text = document.getElementById("output").innerText + "\n\n" + document.getElementById("activities").innerText;
+    navigator.clipboard.writeText(text).then(() => alert("Copied to clipboard!"));
+  }
 
-    charts.forEach(chart => {
-      const dataPoint = generateData();
-      dataPoint.power = (dataPoint.voltage * dataPoint.current).toFixed(1);
-
-      // Keep only last 10 points
-      if (chart.data.labels.length >= 10) {
-        chart.data.labels.shift();
-        chart.data.datasets.forEach(ds => ds.data.shift());
-      }
-
-      chart.data.labels.push(now);
-      chart.data.datasets[0].data.push(dataPoint.voltage);
-      chart.data.datasets[1].data.push(dataPoint.current);
-      chart.data.datasets[2].data.push(dataPoint.power);
-
-      chart.update();
+  function downloadCSV() {
+    let csv = "Type,Log\n";
+    Object.entries(parsedErrors).forEach(([type, logs]) => {
+      logs.forEach(log => csv += `"${type}","${log.replace(/"/g, '""')}"\n`);
     });
-  }, 2000);
-</script>
+    parsedActivities.Displayed.forEach(line => csv += `"Displayed","${line}"\n`);
+    parsedActivities.Started.forEach(line => csv += `"Started","${line}"\n`);
 
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "log_report.csv";
+    a.click();
+  }
+
+  async function downloadPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const errors = document.getElementById("output").innerText;
+    const activities = document.getElementById("activities").innerText;
+
+    doc.setFontSize(12);
+    doc.text("Android Log Analyzer Report", 10, 10);
+    let y = 20;
+
+    doc.setFontSize(10);
+    doc.text("=== Filtered Error Summary ===", 10, y);
+    y += 10;
+    errors.split('\n').forEach(line => {
+      doc.text(line, 10, y);
+      y += 5;
+      if (y > 280) { doc.addPage(); y = 10; }
+    });
+
+    y += 10;
+    doc.text("=== Filtered Activities ===", 10, y);
+    y += 10;
+    activities.split('\n').forEach(line => {
+      doc.text(line, 10, y);
+      y += 5;
+      if (y > 280) { doc.addPage(); y = 10; }
+    });
+
+    doc.save("log_report.pdf");
+  }
+
+  document.querySelectorAll(".filter-checkbox").forEach(cb => cb.addEventListener("change", updateFilteredOutput));
+  document.getElementById("activityDisplayed").addEventListener("change", updateActivityOutput);
+  document.getElementById("activityStarted").addEventListener("change", updateActivityOutput);
+</script>
 </body>
 </html>
